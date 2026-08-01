@@ -1,0 +1,401 @@
+name: Deploy (cPanel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to deploy'
+        required: true
+        default: 'main'
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref to deploy'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DOCUMENT_ROOT: ${{ secrets.DOCUMENT_ROOT || format('{0}/public', secrets.APP_DIRECTORY) }}
+
+    steps:
+      - name: Pre-deploy
+        uses: ./.github/actions/pre-deploy
+        with:
+          ref: ${{ inputs.ref }}
+          app_directory: ${{ secrets.APP_DIRECTORY }}
+          document_root: ${{ env.DOCUMENT_ROOT }}
+
+      - name: Create upload helper
+        run: |
+          cat > "${RUNNER_TEMP}/cpanel-upload.sh" << 'SH'
+          #!/usr/bin/env bash
+          # Usage: cpanel-upload.sh <local_dir> <remote_dir>
+          # Reads AUTH ("cpanel <user>:<token>") and SERVER from the environment.
+          #
+          # Exits 0 when every file uploaded, 1 on an upload or I/O failure,
+          # 2 on a bad invocation.
+
+          if [ $# -ne 2 ]; then
+              echo "usage: cpanel-upload.sh <local_dir> <remote_dir>" >&2
+              exit 2
+          fi
+
+          LOCAL_DIR="$1"
+          REMOTE_DIR="$2"
+          BATCH_MAX=50
+
+          if [ -z "$AUTH" ]; then
+              echo "ERROR: AUTH is not set" >&2
+              exit 2
+          fi
+
+          if [ -z "$SERVER" ]; then
+              echo "ERROR: SERVER is not set" >&2
+              exit 2
+          fi
+
+          if [ ! -d "$LOCAL_DIR" ]; then
+              echo "ERROR: ${LOCAL_DIR} is not a directory" >&2
+              exit 2
+          fi
+
+          API="https://${SERVER}:2083/execute"
+          failures=0
+
+          # flush <target_dir> <file_count> <curl -F args...>
+          flush() {
+              local dir="$1" count="$2"
+              shift 2
+
+              if [ "$count" -eq 0 ]; then
+                  return 0
+              fi
+
+              echo "upload ${dir} (${count} file(s))"
+              if ! curl -sf -H "Authorization: $AUTH" \
+                  -F "dir=${dir}" \
+                  -F "overwrite=1" \
+                  "$@" \
+                  "${API}/Fileman/upload_files" > /dev/null
+              then
+                  echo "ERROR: batch upload failed for ${dir}" >&2
+                  failures=$((failures + 1))
+              fi
+          }
+
+          if ! tmpdir=$(mktemp -d); then
+              echo "ERROR: could not create a temporary directory" >&2
+              exit 1
+          fi
+          trap 'rm -rf "$tmpdir"' EXIT
+
+          if ! find "$LOCAL_DIR" -type f -print > "$tmpdir/files"; then
+              echo "ERROR: could not list the files under ${LOCAL_DIR}" >&2
+              exit 1
+          fi
+
+          # Sorted so that files sharing a target directory are contiguous,
+          # which is what lets the batching below group them.
+          while IFS= read -r file; do
+              rel="${file#"${LOCAL_DIR}"/}"
+              rel_dir=$(dirname "$rel")
+              if [ "$rel_dir" = "." ]; then
+                  printf '%s\t%s\n' "$REMOTE_DIR" "$file"
+              else
+                  printf '%s\t%s\n' "${REMOTE_DIR}/${rel_dir}" "$file"
+              fi
+          done < "$tmpdir/files" | LC_ALL=C sort > "$tmpdir/manifest"
+
+          current_dir=""
+          idx=0
+          set --
+          while IFS=$'\t' read -r target_dir local_file; do
+              if [ "$target_dir" != "$current_dir" ] || [ "$idx" -ge "$BATCH_MAX" ]; then
+                  flush "$current_dir" "$idx" "$@"
+                  current_dir="$target_dir"
+                  idx=0
+                  set --
+              fi
+              idx=$((idx + 1))
+              set -- "$@" -F "file-${idx}=@${local_file}"
+          done < "$tmpdir/manifest"
+          flush "$current_dir" "$idx" "$@"
+
+          if [ "$failures" -gt 0 ]; then
+              echo "ERROR: ${failures} batch upload(s) failed for ${LOCAL_DIR}" >&2
+              exit 1
+          fi
+
+          exit 0
+          SH
+
+      - name: Enter maintenance mode
+        run: |
+          mkdir -p ./maintenance-deploy/storage/framework
+          cat > ./maintenance-deploy/storage/framework/maintenance.php << 'PHP'
+          <?php
+          http_response_code(503);
+          header('Content-Type: text/plain; charset=utf-8');
+          header('Retry-After: 60');
+          header('Refresh: 60');
+          echo "Meeting Sessions is down for an update.\n";
+          echo "This should only take a minute. The page will refresh automatically.\n";
+          exit;
+          PHP
+
+      - name: Upload maintenance file
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        # ./maintenance-deploy mirrors the remote layout, so this lands at
+        # storage/framework/maintenance.php — the path "Exit maintenance mode"
+        # unlinks. upload_files creates that tree on the way in, which is what
+        # makes this work on a first deploy before any app files exist.
+        run: bash "${RUNNER_TEMP}/cpanel-upload.sh" ./maintenance-deploy "${BASE}/${APP_DIR}"
+
+      - name: Fetch old manifests
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+          DOC_ROOT: ${{ env.DOCUMENT_ROOT }}
+        # cPanel UAPI Fileman/get_file_content returns the file body at
+        # .data.content (the .data field itself is an object — .path, .dir,
+        # .filename, .content, …). Extracting just .data would yield the
+        # whole metadata object as JSON, breaking comm-diff downstream.
+        run: |
+          curl -sf \
+            -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/get_file_content?dir=${BASE}/${APP_DIR}&file=.deploy-manifest" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('content','') or '')" \
+            > old-app-manifest.txt 2>/dev/null || touch old-app-manifest.txt
+
+          curl -sf \
+            -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/get_file_content?dir=${BASE}/${DOC_ROOT}&file=.deploy-manifest" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('content','') or '')" \
+            > old-public-manifest.txt 2>/dev/null || touch old-public-manifest.txt
+
+      - name: Compute upload sets from manifest diff
+        # Upload set = lines in new ∖ old (catches new + content-changed
+        # files). `cut -c67-` strips the 64-char sha256 + 2-space separator,
+        # leaving the path. Unchanged files appear in both manifests and are
+        # skipped. Vendor is fingerprinted in the manifest, so vendor changes
+        # flow through the same diff — no separate wipe pass is needed.
+        run: |
+          comm -23 app-manifest.txt    old-app-manifest.txt    | cut -c67- > app-upload-list.txt
+          comm -23 public-manifest.txt old-public-manifest.txt | cut -c67- > public-upload-list.txt
+
+          echo "app files to upload:    $(wc -l < app-upload-list.txt | tr -d ' ')"
+          echo "public files to upload: $(wc -l < public-upload-list.txt | tr -d ' ')"
+
+      - name: Stage upload trees
+        run: |
+          rm -rf ./upload ./public-upload
+          mkdir -p ./upload ./public-upload
+
+          while IFS= read -r rel; do
+            [ -z "$rel" ] && continue
+            mkdir -p "./upload/$(dirname "$rel")"
+            cp "./deploy/$rel" "./upload/$rel"
+          done < app-upload-list.txt
+
+          while IFS= read -r rel; do
+            [ -z "$rel" ] && continue
+            mkdir -p "./public-upload/$(dirname "$rel")"
+            cp "./deploy/public/$rel" "./public-upload/$rel"
+          done < public-upload-list.txt
+
+      - name: Upload changed app files
+        if: hashFiles('app-upload-list.txt') != '' && hashFiles('./upload/**/*') != ''
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        run: bash "${RUNNER_TEMP}/cpanel-upload.sh" ./upload "${BASE}/${APP_DIR}"
+
+      - name: Upload changed public files
+        if: hashFiles('public-upload-list.txt') != '' && hashFiles('./public-upload/**/*') != ''
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          DOC_ROOT: ${{ env.DOCUMENT_ROOT }}
+        run: bash "${RUNNER_TEMP}/cpanel-upload.sh" ./public-upload "${BASE}/${DOC_ROOT}"
+
+      - name: Save .deploy-manifest on server
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+          DOC_ROOT: ${{ env.DOCUMENT_ROOT }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/save_file_content" \
+            --data-urlencode "dir=${BASE}/${APP_DIR}" \
+            --data-urlencode "file=.deploy-manifest" \
+            --data-urlencode "content@app-manifest.txt"
+
+          curl -sf -X POST \
+            -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/save_file_content" \
+            --data-urlencode "dir=${BASE}/${DOC_ROOT}" \
+            --data-urlencode "file=.deploy-manifest" \
+            --data-urlencode "content@public-manifest.txt"
+
+      - name: Delete stale app files
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        run: |
+          # Diff on paths alone, not full "<hash>  <path>" lines: a changed
+          # file has a different hash in old vs new, so a whole-line comm would
+          # flag it as "only in old" and delete the file we just re-uploaded.
+          cut -c67- old-app-manifest.txt | LC_ALL=C sort > old-app-paths.txt
+          cut -c67- app-manifest.txt     | LC_ALL=C sort > app-paths.txt
+          comm -23 old-app-paths.txt app-paths.txt | while read -r file; do
+            [ -z "$file" ] && continue
+            curl -sf -H "Authorization: $AUTH" \
+              "https://${SERVER}:2083/json-api/cpanel" \
+              --data-urlencode "cpanel_jsonapi_apiversion=2" \
+              --data-urlencode "cpanel_jsonapi_module=Fileman" \
+              --data-urlencode "cpanel_jsonapi_func=fileop" \
+              --data-urlencode "op=unlink" \
+              --data-urlencode "sourcefiles=${BASE}/${APP_DIR}/${file}" || true
+          done
+
+      - name: Delete stale public files
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          DOC_ROOT: ${{ env.DOCUMENT_ROOT }}
+        run: |
+          # See "Delete stale app files" — diff on paths, not full lines, so a
+          # changed file isn't deleted right after being re-uploaded.
+          cut -c67- old-public-manifest.txt | LC_ALL=C sort > old-public-paths.txt
+          cut -c67- public-manifest.txt     | LC_ALL=C sort > public-paths.txt
+          comm -23 old-public-paths.txt public-paths.txt | while read -r file; do
+            [ -z "$file" ] && continue
+            curl -sf -H "Authorization: $AUTH" \
+              "https://${SERVER}:2083/json-api/cpanel" \
+              --data-urlencode "cpanel_jsonapi_apiversion=2" \
+              --data-urlencode "cpanel_jsonapi_module=Fileman" \
+              --data-urlencode "cpanel_jsonapi_func=fileop" \
+              --data-urlencode "op=unlink" \
+              --data-urlencode "sourcefiles=${BASE}/${DOC_ROOT}/${file}" || true
+          done
+
+      - name: Check bootstrap sentinel
+        id: sentinel
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        # Probe failure defaults to status=1 (exists) — fail-CLOSED so a flaky
+        # check can never overwrite real .env / database data. To force a
+        # re-bootstrap, delete .deploy-bootstrapped from the server.
+        run: |
+          status=$(curl -s -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/get_file_content?dir=${BASE}/${APP_DIR}&file=.deploy-bootstrapped" \
+            | python3 -c "import sys,json; print(1 if json.load(sys.stdin).get('status') == 1 else 0)" \
+            2>/dev/null || echo 1)
+
+          if [ "$status" = "1" ]; then
+            echo "Sentinel present — skipping bootstrap."
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bootstrap .env (scratch dir)
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        run: |
+          SCRATCH=$(mktemp -d)
+          cp .env.example "$SCRATCH/.env"
+          KEY=$(php artisan key:generate --show)
+          # .env.example ships local-dev defaults (APP_ENV=local, APP_DEBUG=true);
+          # force production-safe values here so a fresh bootstrap never goes
+          # live with debug mode on.
+          sed \
+            -e "s|^APP_KEY=.*|APP_KEY=${KEY}|" \
+            -e "s|^APP_ENV=.*|APP_ENV=production|" \
+            -e "s|^APP_DEBUG=.*|APP_DEBUG=false|" \
+            "$SCRATCH/.env" > "$SCRATCH/.env.tmp"
+          mv "$SCRATCH/.env.tmp" "$SCRATCH/.env"
+          curl -sf -X POST \
+            -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/save_file_content" \
+            --data-urlencode "dir=${BASE}/${APP_DIR}" \
+            --data-urlencode "file=.env" \
+            --data-urlencode "content@$SCRATCH/.env"
+
+      - name: Bootstrap database (scratch dir)
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        run: |
+          SCRATCH=$(mktemp -d)
+          touch "$SCRATCH/database.sqlite"
+          DB_CONNECTION=sqlite DB_DATABASE="$SCRATCH/database.sqlite" php artisan migrate --force
+          mkdir -p ./db-upload/database
+          mv "$SCRATCH/database.sqlite" ./db-upload/database/database.sqlite
+
+      - name: Upload initial database
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        run: bash "${RUNNER_TEMP}/cpanel-upload.sh" ./db-upload "${BASE}/${APP_DIR}"
+
+      - name: Write sentinel
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+          REF: ${{ inputs.ref }}
+        run: |
+          SCRATCH=$(mktemp -d)
+          printf 'bootstrapped %s ref=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REF" \
+            > "$SCRATCH/.deploy-bootstrapped"
+          curl -sf -X POST \
+            -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/execute/Fileman/save_file_content" \
+            --data-urlencode "dir=${BASE}/${APP_DIR}" \
+            --data-urlencode "file=.deploy-bootstrapped" \
+            --data-urlencode "content@$SCRATCH/.deploy-bootstrapped"
+
+      - name: Exit maintenance mode
+        if: always()
+        env:
+          AUTH: "cpanel ${{ secrets.CPANEL_USERNAME }}:${{ secrets.CPANEL_API_KEY }}"
+          BASE: "/home/${{ secrets.CPANEL_USERNAME }}"
+          SERVER: ${{ secrets.SERVER }}
+          APP_DIR: ${{ secrets.APP_DIRECTORY }}
+        run: |
+          curl -sf -H "Authorization: $AUTH" \
+            "https://${SERVER}:2083/json-api/cpanel" \
+            --data-urlencode "cpanel_jsonapi_apiversion=2" \
+            --data-urlencode "cpanel_jsonapi_module=Fileman" \
+            --data-urlencode "cpanel_jsonapi_func=fileop" \
+            --data-urlencode "op=unlink" \
+            --data-urlencode "sourcefiles=${BASE}/${APP_DIR}/storage/framework/maintenance.php" || true

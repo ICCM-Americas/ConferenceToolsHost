@@ -1,0 +1,14 @@
+{
+    "$schema": "https://www.schemastore.org/package.json",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test:ui": "playwright test",
+        "test:ui:headed": "playwright test --headed",
+        "test:ui:report": "playwright show-report tests/ui/.report"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.61.0",
+        "concurrently": "^9.0.1"
+    }
+}

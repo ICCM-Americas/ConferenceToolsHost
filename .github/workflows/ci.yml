@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, pdo, pdo_sqlite, sqlite3
+          coverage: xdebug
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy environment file
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Run Pint formatting check
+        id: pint
+        run: vendor/bin/pint --test
+        continue-on-error: true
+
+      - name: Run tests with coverage
+        id: tests
+        run: php artisan test --compact --coverage-clover=coverage.xml
+        continue-on-error: true
+
+      - name: Upload coverage to Codecov
+        if: steps.tests.outcome == 'success'
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Summarize results
+        if: always()
+        run: |
+          echo ""
+          echo "=== CI Results ==="
+          echo "Formatting (Pint):  ${{ steps.pint.outcome }}"
+          echo "Tests:              ${{ steps.tests.outcome }}"
+          echo "=================="
+          if [ "${{ steps.pint.outcome }}" != "success" ] || [ "${{ steps.tests.outcome }}" != "success" ]; then
+            exit 1
+          fi
+
+      - name: Request changes on PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const failures = [];
+            if ('${{ steps.pint.outcome }}' !== 'success') {
+              failures.push('**Formatting:** Run `vendor/bin/pint` locally and commit the result.');
+            }
+            if ('${{ steps.tests.outcome }}' !== 'success') {
+              failures.push('**Tests:** Run `php artisan test --compact` locally and fix the failures.');
+            }
+            if (failures.length > 0) {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                event: 'REQUEST_CHANGES',
+                body: 'CI checks failed. Please address the following before merging:\n\n' + failures.join('\n'),
+              });
+            }

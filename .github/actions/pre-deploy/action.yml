@@ -1,0 +1,123 @@
+name: Pre-deploy
+description: Build, stage, patch, and generate manifests for deployment
+
+inputs:
+  ref:
+    description: 'Git ref to check out'
+    required: true
+  app_directory:
+    description: 'APP_DIRECTORY path relative to server home'
+    required: true
+  document_root:
+    description: 'DOCUMENT_ROOT path relative to server home'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: mbstring, sqlite3, pdo_sqlite
+
+    - name: Install PHP dependencies
+      shell: bash
+      # COMPOSER_MIRROR_PATH_REPOS=1 makes Composer copy the local path
+      # packages (conference-tools/*) into vendor/ as real files instead of
+      # symlinking them. Symlinks point outside APP_DIRECTORY and are skipped
+      # by the manifest's `find -type f`, so without mirroring the autoloader
+      # would break on the server.
+      env:
+        COMPOSER_MIRROR_PATH_REPOS: '1'
+      run: composer install --no-dev --optimize-autoloader --no-interaction
+
+    - name: Publish package stylesheets
+      shell: bash
+      # The conference-tools packages ship their CSS inside the package and
+      # publish it to public/vendor/<pkg>/css. Must run before the staging tree
+      # is built, so the files land in the public manifest and upload with
+      # everything else. --force so a changed stylesheet overwrites the copy
+      # from the previous deploy.
+      run: php artisan vendor:publish --tag=laravel-assets --force --no-interaction
+
+    - name: Build staging tree
+      shell: bash
+      run: |
+        # COMPOSER_MIRROR_PATH_REPOS copies the conference-tools packages into
+        # vendor/ as real files; if a package carried its own composer vendor/
+        # (its full prod+dev deps) the mirror would drag it along. None of it is
+        # used at runtime — the root autoloader serves package classes from
+        # vendor/conference-tools/<pkg>/src and the host's own vendor/ resolves
+        # their dependencies — so the staging exclude below drops it.
+        rsync -a \
+          --exclude='.git/' --exclude='.vscode/' --exclude='.claude/' \
+          --exclude='build/coverage/' --exclude='coverage/' \
+          --exclude='/vendor/conference-tools/*/vendor/' \
+          --exclude='.lizard-venv/' \
+          --exclude='.pytest_cache/' --exclude='node_modules/' \
+          --exclude='docs/' --exclude='tests/' --exclude='.github/' \
+          --exclude='scripts/' \
+          --exclude='packages/' \
+          --exclude='*.md' --exclude='CLAUDE.md' \
+          --exclude='.env' --exclude='.env.new' \
+          --exclude='database/*.sqlite*' --exclude='db-deploy/' \
+          --exclude='upload/' --exclude='public-upload/' \
+          --exclude='app-manifest.txt' --exclude='public-manifest.txt' \
+          --exclude='old-app-manifest.txt' --exclude='old-public-manifest.txt' \
+          --exclude='app-upload-list.txt' --exclude='public-upload-list.txt' \
+          --exclude='maintenance-deploy/' \
+          --exclude='.phpunit.cache/' --exclude='.phpunit.result.cache' \
+          --exclude='build.zip' --exclude='boost.json' \
+          --exclude='package.json' --exclude='package-lock.json' \
+          --exclude='composer.lock' --exclude='.editorconfig' \
+          --exclude='.gitattributes' --exclude='.gitignore' \
+          --exclude='playwright.config.js' --exclude='.mcp.json' \
+          ./ ./deploy/
+
+    - name: Patch public/index.php and bootstrap/app.php
+      shell: bash
+      run: |
+        APP_DIR="${{ inputs.app_directory }}"
+        DOC_ROOT="${{ inputs.document_root }}"
+        DOC_ROOT="${DOC_ROOT:-${APP_DIR}/public}"
+
+        if [ "$DOC_ROOT" = "${APP_DIR}/public" ]; then
+          echo "Default Laravel layout (DOCUMENT_ROOT = APP_DIRECTORY/public); skipping path patches."
+          exit 0
+        fi
+
+        doc_depth=$(( $(echo "$DOC_ROOT" | tr -cd '/' | wc -c) + 1 ))
+        app_depth=$(( $(echo "$APP_DIR"  | tr -cd '/' | wc -c) + 2 ))
+
+        up_from_doc=""
+        for i in $(seq 1 $doc_depth); do up_from_doc="${up_from_doc}../"; done
+        up_from_bootstrap=""
+        for i in $(seq 1 $app_depth); do up_from_bootstrap="${up_from_bootstrap}../"; done
+
+        up_from_doc_s="${up_from_doc%/}"
+        up_from_bootstrap_s="${up_from_bootstrap%/}"
+
+        sed -i "/__DIR__/ s|'/\.\./|'/${up_from_doc_s}/${APP_DIR}/|g" \
+          deploy/public/index.php
+
+        sed -i "/usePublicPath/ s|'/\.\./public'|'/${up_from_bootstrap_s}/${DOC_ROOT}'|g" \
+          deploy/bootstrap/app.php
+
+    - name: Generate file manifests
+      shell: bash
+      # Manifest lines are "<sha256>  <path>" (shasum native format). Paths
+      # are relative to the staging root. Vendor is included so unchanged
+      # vendor files hash-match the previous deploy and are skipped on upload.
+      run: |
+        ( cd deploy && find . -type f ! -path './public/*' -print0 \
+            | xargs -0 shasum -a 256 ) \
+            | sed 's|  \./|  |' | LC_ALL=C sort > app-manifest.txt
+
+        ( cd deploy/public && find . -type f -print0 \
+            | xargs -0 shasum -a 256 ) \
+            | sed 's|  \./|  |' | LC_ALL=C sort > public-manifest.txt

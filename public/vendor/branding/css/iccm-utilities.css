@@ -1,0 +1,93 @@
+/*
+ * Layout utilities shared by the host application and every conference-tools
+ * package. Published to public/vendor/branding/css alongside iccm.css.
+ *
+ * Everything here earned its place by being written out more than once — the
+ * same flex row, the same field width, the same drag affordance renamed per
+ * screen. Add to this file only when a rule is wanted in more than one view;
+ * anything used once belongs in that package's own stylesheet.
+ *
+ * Modifiers are separate single classes (`class="iccm-row iccm-row-tight"`),
+ * so they tie on specificity with the base and win by coming later in the file.
+ * Keep each modifier below its base.
+ */
+
+/* --- Inline form rows -----------------------------------------------------
+   Rows of controls that wrap onto further physical lines on a narrow screen.
+   Used instead of a table wherever each row is its own <form>: a <form> nested
+   directly in a table is hoisted out by the HTML parser and would submit
+   nothing. */
+.iccm-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.iccm-row-wide { gap: .75rem; }
+.iccm-row-tight { margin-bottom: 0; }
+.iccm-row-loose { margin-bottom: 1rem; }
+.iccm-row-spaced { margin-top: .75rem; }
+.iccm-row-indent { margin-left: 1rem; }
+.iccm-row-fill { flex: 1 1 auto; }
+
+/* A page's action bar: nav links or buttons above the content. */
+.iccm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+
+/* Filter/search bars, where controls of differing heights align on their
+   baselines rather than their centers. */
+.iccm-form-row { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; }
+
+/* Bootstrap 4.6 has no gap utility (that arrived in Bootstrap 5), so this pairs
+   with its .d-flex on elements that are already flex containers. */
+.iccm-gap { gap: .5rem; }
+
+/* --- List rows ------------------------------------------------------------
+   Successive items separated by a rule rather than by card borders. The three
+   paddings are distinct on purpose — they match the density of the content
+   they were each written for. */
+.iccm-list-row { padding: .5rem 0; border-bottom: 1px solid #e2e8f0; }
+.iccm-list-row-tight { padding: .4rem 0; }
+.iccm-list-row-loose { padding: .6rem 0; }
+/* Pushes trailing content (usually an action button) to the far edge. Assumes
+   the element is already a flex container — commonly via .iccm-checkbox-row. */
+.iccm-list-row-split { justify-content: space-between; }
+
+/* --- Field widths ---------------------------------------------------------
+   Named for their width in rem, so a call site reads as its own measurement
+   and the scale can gain a step without renaming the others. */
+.iccm-field-3 { width: 3rem; }
+.iccm-field-4 { width: 4rem; }
+.iccm-field-5 { width: 5rem; }
+.iccm-field-6 { width: 6rem; }
+.iccm-field-7 { width: 7rem; }
+.iccm-field-8 { width: 8rem; }
+.iccm-field-10 { width: 10rem; }
+.iccm-field-12 { width: 12rem; }
+.iccm-field-14 { width: 14rem; }
+.iccm-field-16 { width: 16rem; }
+/* The one field in a row that absorbs the leftover width. */
+.iccm-field-fill { flex: 1 1 14rem; }
+
+/* --- Components -----------------------------------------------------------*/
+
+/* Single-purpose card centered in the page: sign-in, password reset, 2FA. */
+.iccm-narrow-card { max-width: 440px; margin: 0 auto; }
+
+/* The headline number on a dashboard summary card. */
+.iccm-stat-value { font-size: 1.4rem; font-weight: 700; margin-bottom: .25rem; }
+
+/* Reserves the line a JS status message writes into, so the content below it
+   does not jump when the message appears and disappears. */
+.iccm-status-line { min-height: 1.5rem; }
+
+/* Drag affordance for the sortable lists (questions, steps, report columns). */
+.iccm-drag { cursor: move; }
+.iccm-drag-locked { cursor: default; opacity: .4; }
+
+/* Wide content — a schedule grid, a report table — scrolls inside its own box
+   so the page itself never scrolls sideways. */
+.iccm-scroll-x { overflow-x: auto; }
+
+/* --- Print ----------------------------------------------------------------*/
+
+/* Keeps a card whole rather than splitting it across a page break. */
+.iccm-avoid-break { break-inside: avoid; }
+
+@media print {
+    .no-print { display: none !important; }
+}

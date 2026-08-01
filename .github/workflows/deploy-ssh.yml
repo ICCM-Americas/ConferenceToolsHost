@@ -1,0 +1,176 @@
+name: Deploy (SSH)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to deploy'
+        required: true
+        default: 'main'
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref to deploy'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DOCUMENT_ROOT: ${{ secrets.DOCUMENT_ROOT || format('{0}/public', secrets.APP_DIRECTORY) }}
+
+    steps:
+      - name: Pre-deploy
+        uses: ./.github/actions/pre-deploy
+        with:
+          ref: ${{ inputs.ref }}
+          app_directory: ${{ secrets.APP_DIRECTORY }}
+          document_root: ${{ env.DOCUMENT_ROOT }}
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.SERVER }}" >> ~/.ssh/known_hosts
+
+      - name: Enter maintenance mode
+        run: |
+          cat > /tmp/maintenance.php << 'PHP'
+          <?php
+          http_response_code(503);
+          header('Content-Type: text/plain; charset=utf-8');
+          header('Retry-After: 60');
+          header('Refresh: 60');
+          echo "Meeting Sessions is down for an update.\n";
+          echo "This should only take a minute. The page will refresh automatically.\n";
+          exit;
+          PHP
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+            "mkdir -p '${{ secrets.APP_DIRECTORY }}/storage/framework'"
+          scp /tmp/maintenance.php \
+            "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ secrets.APP_DIRECTORY }}/storage/framework/maintenance.php"
+
+      - name: Fetch old manifests
+        run: |
+          scp "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ secrets.APP_DIRECTORY }}/.deploy-manifest" \
+            old-app-manifest.txt 2>/dev/null || touch old-app-manifest.txt
+          scp "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ env.DOCUMENT_ROOT }}/.deploy-manifest" \
+            old-public-manifest.txt 2>/dev/null || touch old-public-manifest.txt
+
+      - name: Compute upload sets from manifest diff
+        # Upload set = lines in new ∖ old (catches new + content-changed
+        # files). `cut -c67-` strips the 64-char sha256 + 2-space separator.
+        # Vendor is fingerprinted in the manifest, so vendor changes flow
+        # through the same diff — no separate wipe pass is needed.
+        run: |
+          comm -23 app-manifest.txt    old-app-manifest.txt    | cut -c67- > app-upload-list.txt
+          comm -23 public-manifest.txt old-public-manifest.txt | cut -c67- > public-upload-list.txt
+
+          echo "app files to upload:    $(wc -l < app-upload-list.txt | tr -d ' ')"
+          echo "public files to upload: $(wc -l < public-upload-list.txt | tr -d ' ')"
+
+      - name: Upload changed app files
+        # tar --files-from streams only the diff. Empty list → empty archive →
+        # remote `tar -xzf -` is a no-op. Cannot rely on rsync being installed
+        # on the cPanel SSH endpoint.
+        run: |
+          tar -C ./deploy --files-from=app-upload-list.txt -czf - \
+            | ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+              "mkdir -p '${{ secrets.APP_DIRECTORY }}' && tar -C '${{ secrets.APP_DIRECTORY }}' -xzf -"
+
+      - name: Upload changed public files
+        run: |
+          tar -C ./deploy/public --files-from=public-upload-list.txt -czf - \
+            | ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+              "mkdir -p '${{ env.DOCUMENT_ROOT }}' && tar -C '${{ env.DOCUMENT_ROOT }}' -xzf -"
+
+      - name: Save .deploy-manifest on server
+        run: |
+          scp app-manifest.txt \
+            "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ secrets.APP_DIRECTORY }}/.deploy-manifest"
+          scp public-manifest.txt \
+            "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ env.DOCUMENT_ROOT }}/.deploy-manifest"
+
+      - name: Delete stale app files
+        run: |
+          comm -23 old-app-manifest.txt app-manifest.txt | cut -c67- | while read -r file; do
+            [ -z "$file" ] && continue
+            ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+              "rm -f '${{ secrets.APP_DIRECTORY }}/${file}'" || true
+          done
+
+      - name: Delete stale public files
+        run: |
+          comm -23 old-public-manifest.txt public-manifest.txt | cut -c67- | while read -r file; do
+            [ -z "$file" ] && continue
+            ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+              "rm -f '${{ env.DOCUMENT_ROOT }}/${file}'" || true
+          done
+
+      - name: Check bootstrap sentinel
+        id: sentinel
+        # `ssh "[ -f ... ]"` is reliable over SSH (unlike the cPanel UAPI
+        # probe). Layered on top is a fail-CLOSED default for SSH errors so a
+        # connectivity blip can never overwrite real .env / database data.
+        # To force a re-bootstrap, delete .deploy-bootstrapped from the server.
+        run: |
+          if ssh -o BatchMode=yes "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+               "[ -f '${{ secrets.APP_DIRECTORY }}/.deploy-bootstrapped' ]" 2>/dev/null; then
+            echo "Sentinel present — skipping bootstrap."
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          elif [ $? -eq 1 ]; then
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Sentinel probe failed — assuming exists (fail-closed)."
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bootstrap .env (scratch dir)
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        run: |
+          SCRATCH=$(mktemp -d)
+          cp .env.example "$SCRATCH/.env"
+          KEY=$(php artisan key:generate --show)
+          sed "s|^APP_KEY=.*|APP_KEY=${KEY}|" "$SCRATCH/.env" > "$SCRATCH/.env.tmp"
+          mv "$SCRATCH/.env.tmp" "$SCRATCH/.env"
+          scp "$SCRATCH/.env" \
+            "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ secrets.APP_DIRECTORY }}/.env"
+
+      - name: Bootstrap database (scratch dir)
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        run: |
+          SCRATCH=$(mktemp -d)
+          touch "$SCRATCH/database.sqlite"
+          DB_DATABASE="$SCRATCH/database.sqlite" php artisan migrate --force
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+            "mkdir -p '${{ secrets.APP_DIRECTORY }}/database'"
+          scp "$SCRATCH/database.sqlite" \
+            "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ secrets.APP_DIRECTORY }}/database/database.sqlite"
+
+      - name: Write sentinel
+        if: steps.sentinel.outputs.bootstrap == 'true'
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          SCRATCH=$(mktemp -d)
+          printf 'bootstrapped %s ref=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REF" \
+            > "$SCRATCH/.deploy-bootstrapped"
+          scp "$SCRATCH/.deploy-bootstrapped" \
+            "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}:${{ secrets.APP_DIRECTORY }}/.deploy-bootstrapped"
+
+      - name: Run post-deploy commands
+        run: |
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+            "cd '${{ secrets.APP_DIRECTORY }}' && \
+             php artisan migrate --force && \
+             php artisan config:cache && \
+             php artisan route:cache && \
+             php artisan view:cache"
+
+      - name: Exit maintenance mode
+        if: always()
+        run: |
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.SERVER }}" \
+            "rm -f '${{ secrets.APP_DIRECTORY }}/storage/framework/maintenance.php'"

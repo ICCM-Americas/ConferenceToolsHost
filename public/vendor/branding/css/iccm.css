@@ -1,0 +1,122 @@
+/*
+ * The shared conference-tools design system.
+ *
+ * Published to public/vendor/branding/css and linked by the host layout. The
+ * brand colors arrive as the CSS custom properties below, which the host
+ * layout defines in a small inline :root block because their values come from
+ * the branding database.
+ *
+ * Load order matters: Bootstrap first, then this file, so the host's own
+ * chrome, components and branding overrides win on any shared selectors.
+ */
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.5;
+}
+
+/* The design-system classes are namespaced with an `iccm-` prefix so they never
+   collide with Bootstrap. Bootstrap's own bare names (.card, .btn, …) stay free
+   for views that want them. */
+header.iccm-app {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    padding: .75rem 1rem;
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+}
+header.iccm-app a { color: var(--color-on-primary); text-decoration: none; }
+/* The logout button is an .iccm-ghost button; on the colored header it must read
+   against the primary surface, not the white card it normally sits on. */
+header.iccm-app .iccm-ghost { color: var(--color-on-primary); border-color: var(--color-on-primary); }
+header.iccm-app .iccm-brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.1rem; }
+header.iccm-app img.iccm-logo { height: 32px; width: auto; }
+/* Section label after the brand (e.g. "BoFs", "Registration"). */
+header.iccm-app .iccm-section-title { font-size: 1rem; font-weight: 600; opacity: .85; padding-left: .75rem; border-left: 1px solid var(--color-on-primary); }
+
+nav.iccm-app { display: flex; gap: .9rem; flex-wrap: wrap; margin-left: auto; align-items: center; }
+nav.iccm-app form { margin: 0; }
+/* Account hub link rendered as a person/bust icon. */
+nav.iccm-app a.iccm-account { display: inline-flex; align-items: center; }
+nav.iccm-app a.iccm-account svg { display: block; }
+/* Admin section dropdowns (<details>) open on hover as well as on click — see
+   the script at the end of the host layout's <body>. */
+nav.iccm-app details.iccm-menu { position: relative; }
+nav.iccm-app details.iccm-menu > summary { cursor: pointer; list-style: none; }
+nav.iccm-app details.iccm-menu > summary::-webkit-details-marker { display: none; }
+nav.iccm-app details.iccm-menu > summary::after { content: " ▾"; }
+nav.iccm-app details.iccm-menu[open] > summary::after { content: " ▴"; }
+nav.iccm-app details.iccm-menu .iccm-menu-items {
+    position: absolute; top: 100%; left: 0; z-index: 20; margin-top: .4rem;
+    /* Sub-menus use the theme's background color with secondary/accent text. */
+    background: var(--color-bg); border: 1px solid var(--color-secondary);
+    border-radius: 6px; padding: .5rem; min-width: 12rem;
+    display: flex; flex-direction: column; gap: .5rem;
+    box-shadow: 0 6px 16px rgba(0,0,0,.2);
+}
+nav.iccm-app details.iccm-menu .iccm-menu-items a { color: var(--color-secondary); }
+/* Invisible bridge across the .4rem gap so the pointer can travel from the
+   summary into the menu without the hover (and the menu) being lost. */
+nav.iccm-app details.iccm-menu .iccm-menu-items::before { content: ""; position: absolute; left: 0; right: 0; top: -.4rem; height: .4rem; }
+
+main { max-width: 960px; margin: 1.5rem auto; padding: 0 1rem; }
+h1, h2, h3 { line-height: 1.2; }
+a { color: var(--color-secondary); }
+
+.iccm-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+
+/* :hover/:focus repeat the base so the button appearance never shifts on hover —
+   Bootstrap's a:hover (loaded before this file) otherwise out-specifies the
+   plain .iccm-btn and flips the link color. */
+.iccm-btn, .iccm-btn:hover, .iccm-btn:focus, button {
+    display: inline-block; cursor: pointer; border: 0; border-radius: 6px;
+    background: var(--color-primary); color: var(--color-on-primary); padding: .5rem .9rem; font-size: .95rem;
+    text-decoration: none;
+}
+.iccm-btn.iccm-secondary, button.iccm-secondary { background: var(--color-secondary); color: var(--color-on-secondary); }
+.iccm-btn.iccm-ghost { background: transparent; color: var(--color-primary); border: 1px solid var(--color-primary); }
+.iccm-btn.iccm-danger, button.iccm-danger { background: #dc2626; color: #fff; }
+
+input, textarea, select {
+    width: 100%; padding: .5rem; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; background: #fff; color: inherit;
+}
+label { display: block; font-weight: 600; margin: .6rem 0 .2rem; }
+.iccm-checkbox-row { display: flex; align-items: center; gap: .5rem; }
+.iccm-checkbox-row input { width: 1.2em; height: 1.2em; flex-shrink: 0; }
+
+table { width: 100%; border-collapse: collapse; margin: .5rem 0; }
+th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+
+.iccm-flash { background: #dcfce7; border: 1px solid #16a34a; color: #166534; padding: .6rem .9rem; border-radius: 6px; margin-bottom: 1rem; }
+.iccm-errors { background: #fee2e2; border: 1px solid #dc2626; color: #991b1b; padding: .6rem .9rem; border-radius: 6px; margin-bottom: 1rem; }
+.iccm-errors-list { margin: 0; padding-left: 1.2rem; }
+.iccm-muted { color: #64748b; font-size: .9rem; }
+.iccm-pill { display:inline-block; padding:.1rem .5rem; border-radius: 999px; font-size:.75rem; background:#e2e8f0; color:#334155; }
+.iccm-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 640px) { .iccm-grid-2 { grid-template-columns: 1fr; } }
+
+/* Re-skin Bootstrap's themeable components (used by the registration views) with
+   the host brand colors, replacing Bootstrap's default blue. These target
+   Bootstrap's own classes — distinct from the namespaced .iccm-* components
+   above. */
+.btn-primary, .btn-primary:hover, .btn-primary:focus {
+    background-color: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary);
+}
+.btn-secondary, .btn-secondary:hover, .btn-secondary:focus {
+    background-color: var(--color-secondary); border-color: var(--color-secondary); color: var(--color-on-secondary);
+}
+.btn-link { color: var(--color-secondary); }
+/* Make Bootstrap's .card match the host .iccm-card box (border color, radius and
+   spacing) so package cards read as host cards. Every card uses
+   card-header/card-body, so padding lives on the body and the header corners are
+   rounded to sit inside the 8px card radius. */
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem; }
+.card-header:first-child { border-top-left-radius: 7px; border-top-right-radius: 7px; }
+.card-body { padding: 1rem 1.25rem; }
+.page-link { color: var(--color-secondary); }
+.page-link:hover, .page-link:focus { color: var(--color-secondary); }
+.page-item.active .page-link { background-color: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }

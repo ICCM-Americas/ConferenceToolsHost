@@ -1,0 +1,18 @@
+name: Deploy on Release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  deploy-cpanel:
+    uses: ./.github/workflows/deploy-cpanel.yml
+    with:
+      ref: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  # deploy-ssh:
+  #   uses: ./.github/workflows/deploy-ssh.yml
+  #   with:
+  #     ref: ${{ github.event.release.tag_name }}
+  #   secrets: inherit

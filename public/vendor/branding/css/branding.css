@@ -1,0 +1,21 @@
+/*
+ * The branding management screen only. Published alongside iccm.css and
+ * iccm-utilities.css; linked by resources/views/branding.blade.php rather than
+ * by the layout, since no other screen needs it.
+ */
+
+.theme-heading { margin: 1.4rem 0 .2rem; }
+.theme-swatches-row { display: flex; flex-wrap: wrap; gap: .6rem; margin: .6rem 0; }
+.theme-swatch-btn { padding: .4rem .55rem; display: flex; flex-direction: column; align-items: center; gap: .35rem; min-width: 96px; }
+.theme-swatch-logo { height: 28px; width: auto; max-width: 88px; object-fit: contain; }
+.theme-swatch-colors { display: inline-flex; border-radius: 4px; overflow: hidden; border: 1px solid #cbd5e1; }
+.theme-swatch-colors span { width: 16px; height: 16px; }
+
+.logo-row { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-bottom: .4rem; }
+#logo-preview { height: 48px; width: auto; }
+
+.checkbox-row-tight { margin-bottom: .4rem; }
+.label-inline { margin: 0; font-weight: 400; }
+.label-weight-normal { font-weight: 400; }
+.hint-tight { margin: .2rem 0 0; }
+.save-btn { margin-top: 1rem; }

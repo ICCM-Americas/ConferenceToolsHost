@@ -1,0 +1,80 @@
+/*
+ * Styles for the BoF Scheduler's own screens.
+ *
+ * Published to public/vendor/bof-scheduler/css and linked by the host layout.
+ * Everything shared with the host or with a sibling package — the iccm-*
+ * components, rows, list rows, field widths — lives in the branding package's
+ * stylesheets instead; see that package's README.
+ */
+
+/* --- Spacing --------------------------------------------------------------
+   A control that follows a block of content. Four steps rather than one
+   because the screens they sit on differ in density; before these existed the
+   same four values were spelled out under fourteen different class names. */
+.bof-spaced-sm { margin-top: .5rem; }
+.bof-spaced { margin-top: .6rem; }
+.bof-spaced-md { margin-top: .8rem; }
+.bof-spaced-lg { margin-top: 1rem; }
+
+/* --- Rows and actions -----------------------------------------------------*/
+
+/* A group of buttons above a listing. */
+.bof-button-row { display: flex; gap: .6rem; flex-wrap: wrap; }
+
+/* The buttons at the trailing edge of a list row. */
+.bof-row-actions { display: flex; gap: .5rem; align-items: start; }
+
+/* List rows that carry their own flex layout, so they cannot simply use the
+   shared .iccm-list-row utilities. */
+.bof-scored-row { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .6rem 0; border-bottom: 1px solid #e2e8f0; }
+.bof-permanent-row { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+
+/* Labels that sit inline with their control rather than above it. */
+.bof-inline-label { margin: 0; }
+.bof-label-normal { font-weight: 400; }
+
+/* --- Rooms ----------------------------------------------------------------
+   Pixel widths, not the shared rem scale: these hold small integers whose
+   fields should stay the same size as the numbers grow. */
+.bof-room-name-field { flex: 2; min-width: 160px; }
+.bof-room-size-field { width: 100px; }
+.bof-room-sort-field { width: 90px; }
+
+/* --- Sessions -------------------------------------------------------------*/
+
+.bof-facilitator-add-row { display: flex; gap: .4rem; align-items: center; margin-top: .4rem; flex-wrap: wrap; }
+
+/* --- Permanent sessions ---------------------------------------------------*/
+
+.bof-perm-fieldset { margin-top: 1rem; border: 1px solid #e2e8f0; border-radius: 6px; padding: .75rem; }
+
+/* --- Schedule -------------------------------------------------------------
+   Column minimums keep the grid readable while it scrolls sideways inside its
+   .iccm-scroll-x wrapper. */
+.bof-schedule-table { width: 100%; }
+.bof-schedule-col-room { min-width: 6rem; }
+.bof-schedule-col-session { min-width: 14rem; }
+.bof-schedule-col-facilitators { min-width: 8rem; }
+.bof-schedule-description { margin: .75rem 0 0; }
+
+/* --- Summary cards --------------------------------------------------------*/
+
+.bof-summary-title { margin-top: 0; }
+.bof-summary-link { margin-top: 1rem; margin-bottom: 0; }
+.bof-phase-summary-count { margin-bottom: 0; }
+
+/* --- Selection ------------------------------------------------------------
+   Interest choices: a horizontal row on wide screens that wraps and then
+   stacks vertically on phones, so the page never needs to be scrolled
+   sideways. Shared by nominated and permanent sessions. */
+.interest-row { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin-top: .35rem; align-items: baseline; }
+.interest-row .iccm-checkbox-row { font-weight: 400; }
+.interest-row .willing { margin-left: auto; }
+/* Gray the label out so the disabled state (set in JS until the user expresses
+   interest) is actually visible. */
+.interest-row .willing:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+    .interest-row { flex-direction: column; align-items: flex-start; gap: .5rem; }
+    .interest-row .willing { margin-left: 0; }
+}

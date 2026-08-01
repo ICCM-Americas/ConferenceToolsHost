@@ -1,0 +1,36 @@
+<?php
+
+return [
+    'login' => 'Log In',
+    'register' => 'Create an Account',
+    'email' => 'Email address',
+    'password' => 'Password',
+    'confirm_password' => 'Confirm password',
+    'name' => 'Display name',
+    'name_optional' => 'Display name (optional)',
+    'name_optional_hint' => 'Leave blank and we will generate one for you.',
+    'remember' => 'Remember me',
+    'login_passkey' => 'Sign In with a Passkey',
+    'forgot' => 'Forgot your password?',
+    'need_account' => 'Need an account?',
+    'have_account' => 'Already have an account?',
+    'send_reset_link' => 'Email Password Reset Link',
+    'reset_password' => 'Reset Password',
+    'new_password' => 'New password',
+    'two_factor_title' => 'Two-Factor Authentication',
+    'two_factor_prompt' => 'Enter the code from your authenticator app.',
+    'code' => 'Authentication code',
+    'recovery_code' => 'Recovery code',
+    'use_recovery' => 'Use a Recovery Code Instead',
+    'verify' => 'Verify',
+    'forced_title' => 'Choose a New Password',
+    'forced_intro' => 'You must set a new password before continuing.',
+    'password_hint' => 'At least 12 characters.',
+    'update_password' => 'Update Password',
+
+    // Passkey (WebAuthn) client messages
+    'passkey_login_failed' => 'Passkey sign-in failed.',
+    'passkey_login_canceled' => 'Passkey sign-in was canceled or failed.',
+    'passkey_register_failed' => 'Could not register passkey.',
+    'passkey_register_canceled' => 'Passkey registration was canceled or failed.',
+];

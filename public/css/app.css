@@ -1,0 +1,42 @@
+/*
+ * Styles for the host application's own screens (auth, profile, user admin).
+ *
+ * The design system these build on — the iccm-* components and layout
+ * utilities — lives in the branding package and is published to
+ * public/vendor/branding/css. Anything wanted by a conference-tools package as
+ * well belongs there, not here.
+ *
+ * Served straight from the web root: the host owns public/, so this file needs
+ * no publish step. Linked by resources/views/layouts/app.blade.php.
+ */
+
+/* --- User administration --------------------------------------------------*/
+
+/* Search box grows to twice a filter select's share of the row. */
+.filter-field-search { flex: 2; min-width: 180px; }
+.filter-field-select { min-width: 160px; }
+/* A user's name and their role badges stack rather than overflow when the row
+   is too narrow to hold the actions alongside them. */
+.user-row { flex-wrap: wrap; }
+.badges { margin-top: .3rem; }
+.temp-password-input { max-width: 280px; }
+.is-admin-row { margin-top: .6rem; }
+
+/* --- Authentication -------------------------------------------------------*/
+
+.remember-row { margin-top: .6rem; }
+.auth-divider { margin: 1.25rem 0; }
+.recovery-details { margin-top: .8rem; }
+
+/* --- Profile --------------------------------------------------------------*/
+
+.form-submit-btn { margin-top: .6rem; }
+.add-passkey-row { margin-top: .8rem; }
+.passkey-name-input { max-width: 240px; display: inline-block; }
+.delete-password-input { max-width: 280px; }
+
+/* --- Two-factor -----------------------------------------------------------*/
+
+.recovery-codes { background: #f1f5f9; padding: .75rem; border-radius: 6px; }
+.code-input { max-width: 200px; }
+.confirm-btn { margin-top: .6rem; }

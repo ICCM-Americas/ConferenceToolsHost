@@ -346,10 +346,10 @@ users migration.
 ## Testing
 
 ```bash
-php artisan test
+php artisan test --parallel
 ```
 
-The suite (PHPUnit) covers guests/authorization, phase-by-phase public-results
+The suite (PHPUnit, run across processes by ParaTest) covers guests/authorization, phase-by-phase public-results
 behavior, phase-name visibility, password & passkey & MFA login, lockout, forced
 password change, password rules, nominations and preferences per phase, merge &
 delete phase restrictions and merge preference combination, dynamic capacity,

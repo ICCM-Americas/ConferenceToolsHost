@@ -31,6 +31,7 @@
         }
     ],
     "require-dev": {
+        "brianium/paratest": "^7.0",
         "fakerphp/faker": "^1.23",
         "laravel/pail": "^1.2.5",
         "laravel/pao": "^1.0.6",
@@ -66,9 +67,17 @@
         ],
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
-            "@php artisan test"
+            "@php artisan test --parallel"
         ],
         "test:coverage": [
+            "@php artisan config:clear --ansi @no_additional_args",
+            "@php artisan test --parallel --coverage-html coverage/html --coverage-clover coverage/clover.xml"
+        ],
+        "test:github": [
+            "@php artisan config:clear --ansi @no_additional_args",
+            "@php artisan test"
+        ],
+        "test:coverage:github": [
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test --coverage-html coverage/html --coverage-clover coverage/clover.xml"
         ],

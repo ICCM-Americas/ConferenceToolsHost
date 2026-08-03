@@ -33,6 +33,7 @@
 /public-manifest.txt
 /public-upload-list.txt
 
+/coverage
 /database/ui-testing.sqlite
 /public/storage
 /storage/*.key

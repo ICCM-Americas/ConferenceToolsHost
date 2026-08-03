@@ -16,22 +16,60 @@ jobs:
       contents: write
       pull-requests: write
 
+    # The `secrets` context is not available to a step's `if`, so the token is
+    # exposed as an environment variable the upload step can test for.
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
     steps:
       - name: Check out code
         uses: actions/checkout@v6
 
-      - name: Set up PHP 8.3
+      - name: Check out branding package
+        uses: actions/checkout@v6
+        with:
+          repository: ICCM-Americas/branding
+          path: packages/conference-tools/branding
+
+      - name: Check out bof-scheduler package
+        uses: actions/checkout@v6
+        with:
+          repository: ICCM-Americas/bof-scheduler
+          path: packages/conference-tools/bof-scheduler
+
+      - name: Check out registration package
+        uses: actions/checkout@v6
+        with:
+          repository: ICCM-Americas/registration
+          path: packages/conference-tools/registration
+
+      - name: Set up PHP 8.4
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
-          extensions: mbstring, pdo, pdo_sqlite, sqlite3
+          php-version: "8.4"
+          extensions: mbstring, pdo, pdo_sqlite, sqlite3, zip
           coverage: xdebug
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
 
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
+      - name: Install npm dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Copy environment file
         run: cp .env.example .env && php artisan key:generate
+
+      - name: Publish package assets
+        run: php artisan vendor:publish --tag=laravel-assets --ansi --force
 
       - name: Run Pint formatting check
         id: pint
@@ -40,16 +78,33 @@ jobs:
 
       - name: Run tests with coverage
         id: tests
-        run: php artisan test --compact --coverage-clover=coverage.xml
+        run: composer test:coverage:github
         continue-on-error: true
 
       - name: Upload coverage to Codecov
-        if: steps.tests.outcome == 'success'
+        if: steps.tests.outcome == 'success' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v6
         with:
-          files: coverage.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/clover.xml
+          token: ${{ env.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+      - name: Run UI tests
+        id: ui
+        run: npm run test:ui
+        continue-on-error: true
+
+      - name: Upload UI test artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-test-results
+          path: |
+            tests/ui/screenshots
+            tests/ui/.report
+            tests/ui/.results
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Summarize results
         if: always()
@@ -58,8 +113,9 @@ jobs:
           echo "=== CI Results ==="
           echo "Formatting (Pint):  ${{ steps.pint.outcome }}"
           echo "Tests:              ${{ steps.tests.outcome }}"
+          echo "UI tests:           ${{ steps.ui.outcome }}"
           echo "=================="
-          if [ "${{ steps.pint.outcome }}" != "success" ] || [ "${{ steps.tests.outcome }}" != "success" ]; then
+          if [ "${{ steps.pint.outcome }}" != "success" ] || [ "${{ steps.tests.outcome }}" != "success" ] || [ "${{ steps.ui.outcome }}" != "success" ]; then
             exit 1
           fi
 
@@ -73,7 +129,10 @@ jobs:
               failures.push('**Formatting:** Run `vendor/bin/pint` locally and commit the result.');
             }
             if ('${{ steps.tests.outcome }}' !== 'success') {
-              failures.push('**Tests:** Run `php artisan test --compact` locally and fix the failures.');
+              failures.push('**Tests:** Run `composer test:coverage` locally and fix the failures.');
+            }
+            if ('${{ steps.ui.outcome }}' !== 'success') {
+              failures.push('**UI tests:** Run `npm run test:ui` locally and fix the failures. The workflow run\'s `ui-test-results` artifact has the screenshots, report and traces.');
             }
             if (failures.length > 0) {
               await github.rest.pulls.createReview({

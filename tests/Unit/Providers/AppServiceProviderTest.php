@@ -13,17 +13,18 @@ use Tests\TestCase;
 #[TestDox('AppServiceProvider::packageInstalled')]
 class AppServiceProviderTest extends TestCase
 {
-    public static function classNameProvider() {
+    public static function classNameProvider()
+    {
         return [
-            'existing class' => [ BoFSchedulerServiceProvider::class, true],
-            'non-existing class' => [ 'App\\NoSuch\\PackageServiceProvider', false ],
+            'existing class' => [BoFSchedulerServiceProvider::class, true],
+            'non-existing class' => ['App\\NoSuch\\PackageServiceProvider', false],
         ];
     }
 
     #[Test]
     #[TestDox('reports an installed optional package by its autoloadable provider class')]
     #[DataProvider('classNameProvider')]
-    public function packageInstalledWorksFor(string $className, bool $exists): void
+    public function package_installed_works_for(string $className, bool $exists): void
     {
         $this->assertEquals($exists, AppServiceProvider::packageInstalled($className));
     }

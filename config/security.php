@@ -18,6 +18,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | The reverse proxies allowed to declare the scheme, host and port the
+    | browser actually used, comma separated, or '*' when nothing can reach
+    | this app except through them. Empty trusts none of them.
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Login / Two-Factor Rate Limiting
     |--------------------------------------------------------------------------
     |

@@ -4,9 +4,11 @@ use App\Http\Middleware\EnsureNotLocked;
 use App\Http\Middleware\EnsurePasswordIsCurrent;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\TrustProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\TrustProxies as BaseTrustProxies;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -23,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'not.locked' => EnsureNotLocked::class,
             'password.current' => EnsurePasswordIsCurrent::class,
         ]);
+
+        $middleware->replace(BaseTrustProxies::class, TrustProxies::class);
 
         $middleware->append(SecurityHeaders::class);
 

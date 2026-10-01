@@ -35,7 +35,9 @@ test.describe('test registration', () => {
         // by a plain HTML anchor to the section being tested.
         await page.getByRole('link', { name: 'Exit Test Mode' }).click();
         await expect(page).toHaveURL(/\/registration\/admin\/questions#section-\d+$/);
-        await expect(page.locator('.section', { hasText: 'UI Test Details' })).toBeInViewport();
+        // The console's heading is an editable field, so the card is identified
+        // by that field's value rather than by its text.
+        await expect(page.locator('.section:has(input[name="title"][value="UI Test Details"])')).toBeInViewport();
 
         // Returning to the test drive resumes the run on the same step.
         await page.goto('/registration/admin/test-registration');

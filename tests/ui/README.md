@@ -20,6 +20,10 @@ npm run test:ui:headed # watch it in a real browser window
 npm run test:ui:report # open the HTML report from the last run
 ```
 
+All three conference-tools packages (`branding`, `bof-scheduler` and
+`registration`) must be installed by Composer into `vendor/`. The host app
+requires every one of them, so the suite can't run with any of them missing.
+
 You do **not** need a server running first. Playwright boots one for you (see
 `webServer` in `playwright.config.js`): it rebuilds an **isolated** sqlite
 database (`database/ui-testing.sqlite`) from scratch, seeds deterministic

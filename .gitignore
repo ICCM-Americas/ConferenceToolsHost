@@ -36,6 +36,7 @@
 /coverage
 /database/ui-testing.sqlite
 /public/storage
+/public/vendor
 /storage/*.key
 /storage/pail
 /vendor

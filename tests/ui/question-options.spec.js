@@ -83,14 +83,16 @@ test.describe('question options editor', () => {
         expect(consoleErrors).toEqual([]);
     });
 
-    // The read-only mode a locked question form renders in (every control
-    // disabled while registration is open or any answer exists) is exercised
-    // server-side, down to the exact rendered HTML, by the PHPUnit suite
-    // (QuestionBuilderControllerTest's lock tests) — this suite's fixtures
-    // never reach that state (no spec here submits a real, persisted
-    // registration; the UI database seeds no window and no answers), so
-    // there's nothing further for a browser-level test to add. See
-    // registration-reports.spec.js for the same boundary drawn for reports.
+    // The texts-only mode a locked question form renders in (while
+    // registration is open or any answer exists), and the warning dialog a
+    // save shows when it would rewrite stored answers, are exercised
+    // server-side by the PHPUnit suite (QuestionBuilderControllerTest's lock
+    // tests, AnswerTextSyncTest) — this suite's fixtures never reach that
+    // state (no spec here submits a real, persisted registration; the UI
+    // database seeds no window and no answers). Every save below still runs
+    // the dialog's preview request first, which finds nothing to change and
+    // submits straight through. See registration-reports.spec.js for the
+    // same boundary drawn for reports.
 
     test('deleting a row removes the option on save', async ({ page, consoleErrors }) => {
         await page.goto('/registration/admin/questions', { waitUntil: 'networkidle' });

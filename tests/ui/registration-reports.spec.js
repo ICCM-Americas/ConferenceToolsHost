@@ -12,11 +12,22 @@ import { test, expect, shot, loginAsAdmin } from './support/helpers.js';
 // jsPDF/AutoTable loads from unpkg, the DejaVu faces stream from the
 // branding package's font route, and the page's generator builds and
 // saves the document. Needs network access to unpkg — the same
-// dependency the real export has.
-const exportPdf = async (page, path, filenamePattern) => {
+// dependency the real export has. The choices (radio labels) answer the
+// admin-defined report's PDF Options dialog; without them the page exports
+// directly.
+const exportPdf = async (page, path, filenamePattern, choices) => {
     await page.goto(path);
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export PDF' }).click();
+    if (choices) {
+        const dialog = page.locator('#pdf-options-modal');
+        await expect(dialog).toBeVisible();
+        for (const choice of choices) {
+            await dialog.getByLabel(choice).check();
+        }
+        await dialog.getByRole('button', { name: 'Export', exact: true }).click();
+        await expect(dialog).toBeHidden();
+    }
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(filenamePattern);
 
@@ -25,6 +36,8 @@ const exportPdf = async (page, path, filenamePattern) => {
     // Real output, not a stub: the embedded DejaVu faces alone are
     // far bigger than this.
     expect(contents.length).toBeGreaterThan(10000);
+
+    return contents;
 };
 
 test.describe('registration logistics and reports', () => {
@@ -186,7 +199,25 @@ test.describe('registration logistics and reports', () => {
         await expect(page.locator('body')).toContainText('UI Test Footer');
         await expect(page.getByRole('link', { name: 'Export CSV' })).toBeVisible();
         const reportUrl = page.url();
-        await exportPdf(page, reportUrl, /^ui-test-roster-\d{8}-\d{6}\.pdf$/);
+
+        // Export PDF first asks for the orientation and paper size,
+        // preselecting portrait and the US locale's letter paper; Cancel
+        // closes it unexported.
+        await page.getByRole('button', { name: 'Export PDF' }).click();
+        const optionsDialog = page.locator('#pdf-options-modal');
+        await expect(optionsDialog).toBeVisible();
+        await expect(optionsDialog.getByLabel('Portrait')).toBeChecked();
+        await expect(optionsDialog.getByLabel('Landscape')).not.toBeChecked();
+        await expect(optionsDialog.getByLabel('US Letter')).toBeChecked();
+        await expect(optionsDialog.getByLabel('A4')).not.toBeChecked();
+        await shot(page, testInfo, 'report-pdf-options');
+        await optionsDialog.getByRole('button', { name: 'Cancel' }).click();
+        await expect(optionsDialog).toBeHidden();
+
+        const pdf = await exportPdf(page, reportUrl, /^ui-test-roster-\d{8}-\d{6}\.pdf$/, ['Landscape', 'A4']);
+        // A4 landscape, in points.
+        const [, width, height] = pdf.toString('latin1').match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
+        expect([Math.round(width), Math.round(height)]).toEqual([842, 595]);
 
         // Deleting the report (confirmed) returns the list to its empty state.
         await page.goto('/registration/admin/reports');

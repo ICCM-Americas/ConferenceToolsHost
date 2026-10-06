@@ -78,12 +78,14 @@ test.describe('registration logistics and reports', () => {
         await expect(page.locator('#shuttle_seats')).toHaveValue('10');
         await expect(page.locator('#guest_minors_get_badges')).toBeChecked();
 
-        // The console report pages render with both exports — the PDF is
-        // generated client-side (jsPDF), so Export PDF is a button wired to
-        // the page's generator, and the CSV stays a server link.
+        // Every console renders with both exports — the PDF is generated
+        // client-side (jsPDF), so Export PDF is a button wired to the page's
+        // generator, and the CSV stays a server link.
         for (const [name, heading] of [
             ['Name Badges', 'Name Badges'],
+            ['Room Assignments', 'Room Assignments'],
             ['Shuttle Schedule', 'Shuttle Schedule'],
+            ['Prayer Pals', 'Prayer Pals'],
         ]) {
             await page.goto('/registration/admin/logistics');
             await page.getByRole('link', { name, exact: true }).click();
@@ -326,6 +328,19 @@ test.describe('registration logistics and reports', () => {
 
         expect(consoleErrors).toEqual([]);
     });
+
+    for (const [path, stem] of [
+        ['/registration/admin/rooms/assignments', 'room-assignments'],
+        ['/registration/admin/logistics/prayer-pals', 'prayer-pals'],
+    ]) {
+        test(`the ${stem} PDF takes the orientation and paper options and downloads as a real PDF`, async ({ page, consoleErrors }) => {
+            await loginAsAdmin(page);
+
+            await exportPdf(page, path, new RegExp(`^${stem}-\\d{8}-\\d{6}\\.pdf$`), ['Landscape', 'A4']);
+
+            expect(consoleErrors).toEqual([]);
+        });
+    }
 
     test('lodging is a top-level nav item and rooms are added by wing and floor', async ({ page, consoleErrors }, testInfo) => {
         await loginAsAdmin(page);

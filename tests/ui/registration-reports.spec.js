@@ -248,13 +248,17 @@ test.describe('registration logistics and reports', () => {
                 const row = await label.boundingBox();
                 expect(box.x - row.x).toBeLessThan(2);
             }
-            // The guest-inclusion checkboxes sit beside their one-line labels.
+            // The guest-inclusion checkboxes sit beside their labels, one line
+            // on desktop; at phone width a wide fallback font (CI's DejaVu
+            // Sans) wraps them, so only the alignment is checked there.
             const guestBoxes = page.locator('.iccm-checkbox-row').filter({ has: page.locator('input[type="checkbox"]') });
             await expect(guestBoxes).toHaveCount(2);
             for (const label of await guestBoxes.all()) {
                 const box = await label.locator('input').boundingBox();
                 const row = await label.boundingBox();
-                expect(row.height).toBeLessThan(36);
+                if (name === 'desktop') {
+                    expect(row.height).toBeLessThan(36);
+                }
                 expect(Math.abs((box.y + box.height / 2) - (row.y + row.height / 2))).toBeLessThan(3);
                 expect(box.x - row.x).toBeLessThan(2);
             }

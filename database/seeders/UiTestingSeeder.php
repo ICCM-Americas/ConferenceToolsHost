@@ -157,6 +157,13 @@ class UiTestingSeeder extends Seeder
             ->update(['section_id' => $section->id, 'position' => 4]);
         Section::where('key', SystemQuestionsSeeder::SECTION_KEY)->update(['enabled' => false]);
 
+        // A visibility rule for admin-search.spec.js to find. It sits on the
+        // now-empty, disabled system section so it changes no step any other
+        // spec walks or inspects.
+        Section::where('key', SystemQuestionsSeeder::SECTION_KEY)->firstOrFail()
+            ->conditionGroups()->firstOrCreate([], ['operator' => 'and'])
+            ->conditions()->firstOrCreate(['question_id' => $pass->id], ['operator' => 'equals', 'value' => 'day']);
+
         // The guest's own (Guest-scope) question set: a name, enough for the
         // guest-registration UI spec to add/edit/remove a guest, plus a Radio
         // question so the logistics page's Prayer Pals nomination has a

@@ -1,6 +1,7 @@
 // The registration Logistics console (the interactive consoles and the
 // question nominations that feed them) and the admin-defined Reports: a
-// report is a name/description plus question or built-in columns, per-column
+// report is a type (Registrant or Individual, fixed at creation) and a
+// name/description plus question or built-in columns, per-column
 // "Shown When" cell rules, and report-level row rules — all edited on the
 // Reports pages and exported as CSV and client-side PDF. The UI database
 // seeds no registrants, so the report pages show their empty states — the
@@ -133,6 +134,7 @@ test.describe('registration logistics and reports', () => {
 
         // Define the report, then continue straight into its editor.
         await page.getByRole('link', { name: 'New Report' }).click();
+        await page.check('#report-type input[value="registrant"]');
         await page.fill('#report-name', 'UI Test Roster');
         await page.fill('#report-description', 'Created by the UI suite.');
         await page.fill('#report-header', 'UI Test Header');
@@ -168,9 +170,11 @@ test.describe('registration logistics and reports', () => {
         await modal.getByRole('button', { name: 'Add a Visibility Rule' }).click();
         await expect(modal.getByText('Shown only when the rule matches:')).toBeVisible();
         // The group's AND/OR toggle is also a select[name=operator]; aim at
-        // the add-condition form specifically.
+        // the add-condition form specifically. Cell rules offer registrant and
+        // guest questions, one select each; only the picked side's is enabled.
         const conditionForm = modal.locator('form').filter({ has: page.locator('select[name="question_id"]') });
-        await conditionForm.locator('select[name="question_id"]').selectOption({ label: 'ui_test_pass' });
+        await expect(conditionForm.getByLabel('Registrant questions')).toBeChecked();
+        await conditionForm.locator('select[name="question_id"]:not([disabled])').selectOption({ label: 'ui_test_pass' });
         await conditionForm.locator('select[name="operator"]').selectOption('equals');
         await conditionForm.locator('input[name="value"]').fill('day');
         await conditionForm.getByRole('button', { name: 'Add Condition' }).click();
@@ -228,6 +232,91 @@ test.describe('registration logistics and reports', () => {
 
         expect(consoleErrors).toEqual([]);
     });
+
+    for (const [name, width] of [['desktop', 1280], ['phone', 375]]) {
+        test(`an individual report's row rule picks guest questions through the toggle at ${name} width`, async ({ page, consoleErrors }, testInfo) => {
+            await page.setViewportSize({ width, height: 900 });
+            await loginAsAdmin(page);
+
+            // The type is asked for up front: each radio sits at the start
+            // of its row, and the long descriptions wrap without overflow.
+            await page.goto('/registration/admin/reports/create');
+            for (const label of await page.locator('#report-type .iccm-checkbox-row').all()) {
+                const box = await label.locator('input').boundingBox();
+                const row = await label.boundingBox();
+                expect(box.x - row.x).toBeLessThan(2);
+            }
+            // The guest-inclusion checkboxes sit beside their one-line labels.
+            const guestBoxes = page.locator('.iccm-checkbox-row').filter({ has: page.locator('input[type="checkbox"]') });
+            await expect(guestBoxes).toHaveCount(2);
+            for (const label of await guestBoxes.all()) {
+                const box = await label.locator('input').boundingBox();
+                const row = await label.boundingBox();
+                expect(row.height).toBeLessThan(36);
+                expect(Math.abs((box.y + box.height / 2) - (row.y + row.height / 2))).toBeLessThan(3);
+                expect(box.x - row.x).toBeLessThan(2);
+            }
+            await shot(page, testInfo, `report-type-${name}`);
+            await page.check('#report-type input[value="individual"]');
+            await page.fill('#report-name', `UI Individual ${name}`);
+            await page.getByRole('button', { name: 'Save', exact: true }).click();
+            await expect(page.locator('h1')).toContainText('Edit Report');
+            await expect(page.locator('body')).toContainText('Individual');
+
+            const rulesCard = page.locator('.card.js-badge-row', { hasText: 'Row Rules' });
+            await rulesCard.getByRole('link', { name: 'Edit Row Rules' }).click();
+            const modal = page.locator('#editor-modal');
+            await expect(modal.locator('.js-editor')).toBeVisible();
+            await modal.getByRole('button', { name: 'Add a Visibility Rule' }).click();
+
+            // Registrant questions are picked first; switching shows only the
+            // guest questions' select.
+            const conditionForm = modal.locator('form').filter({ has: page.locator('select[name="question_id"]') });
+            const registrantSelect = conditionForm.locator('select[data-scope="participant"]');
+            const guestSelect = conditionForm.locator('select[data-scope="guest"]');
+            await expect(registrantSelect).toBeVisible();
+            await expect(guestSelect).toBeHidden();
+            await conditionForm.getByLabel('Guest questions').check();
+            await expect(guestSelect).toBeVisible();
+            await expect(guestSelect).toBeEnabled();
+            await expect(registrantSelect).toBeHidden();
+            await expect(registrantSelect).toBeDisabled();
+
+            // Each toggle choice is one line with its box beside the text.
+            for (const label of await conditionForm.locator('.iccm-checkbox-row').all()) {
+                const box = await label.locator('input').boundingBox();
+                const row = await label.boundingBox();
+                expect(row.height).toBeLessThan(36);
+                expect(Math.abs((box.y + box.height / 2) - (row.y + row.height / 2))).toBeLessThan(3);
+            }
+
+            await guestSelect.selectOption({ label: 'ui_test_guest_prayer_pals' });
+            await conditionForm.locator('select[name="operator"]').selectOption('equals');
+            await conditionForm.locator('input[name="value"]').fill('Yes');
+            await conditionForm.getByRole('button', { name: 'Add Condition' }).click();
+
+            // The new leaf is tagged as a guest condition, and the refreshed
+            // form keeps the guest side picked for the next condition.
+            const leaf = modal.locator('.list-group-item', { hasText: 'ui_test_guest_prayer_pals' });
+            await expect(leaf).toBeVisible();
+            await expect(leaf.locator('.badge', { hasText: 'guest' })).toBeVisible();
+            await expect(modal.locator('form').filter({ has: page.locator('select[name="question_id"]') }).getByLabel('Guest questions')).toBeChecked();
+
+            const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+            expect(overflow).toBeLessThanOrEqual(0);
+            await shot(page, testInfo, `report-individual-rule-${name}`);
+            await modal.locator('button.close').click();
+            await expect(rulesCard.locator('[data-badge="conditional"]')).toBeVisible();
+
+            // Clean up so the list's empty state holds for the other tests.
+            await page.goto('/registration/admin/reports');
+            page.once('dialog', (dialog) => dialog.accept());
+            await page.locator('.iccm-row', { hasText: `UI Individual ${name}` }).getByRole('button', { name: 'Delete', exact: true }).click();
+            await expect(page.locator('.alert-success')).toContainText('The report has been deleted.');
+
+            expect(consoleErrors).toEqual([]);
+        });
+    }
 
     test('the badge PDF is generated in the browser and downloads as a real PDF', async ({ page, consoleErrors }) => {
         await loginAsAdmin(page);
